@@ -1,0 +1,65 @@
+
+<!-- memberOf attribute (Active Directory security groups) -->
+<resolver:AttributeDefinition id="memberOf" xsi:type="Simple" xmlns="urn:mace:shibboleth:2.0:resolver:ad" sourceAttributeID="memberOf">
+    <resolver:Dependency ref="myADLDAP" />
+    <resolver:AttributeEncoder xsi:type="SAML2String" xmlns="urn:mace:shibboleth:2.0:attribute:encoder" name="urn:oid:1.2.840.113556.1.2.102" friendlyName="memberOf" />
+</resolver:AttributeDefinition>
+
+<!-- memberOfGroupNameOnly attribute strips down the memberOf attribute to base groupname-->
+<resolver:AttributeDefinition xsi:type="RegexSplit" xmlns="urn:mace:shibboleth:2.0:resolver:ad"
+        id="memberOfGroupNameOnly"
+        sourceAttributeID="memberOf"
+        regex="CN=([^,]+)*">
+
+        <resolver:Dependency ref="memberOf" />
+
+</resolver:AttributeDefinition>
+
+<!-- eduPersonEntitlement attribute, scripted to build values from multiple sources -->
+<resolver:AttributeDefinition xsi:type="Script" xmlns="urn:mace:shibboleth:2.0:resolver:ad"
+                              id="eduPersonEntitlement"
+                              sourceAttributeID="eduPersonEntitlement">
+
+    <!-- Dependency that provides the source attribute. -->
+    <resolver:Dependency ref="myLDAP" />
+    <resolver:Dependency ref="eduPersonAffiliation" />
+    <resolver:Dependency ref="memberOfGroupNameOnly" />
+
+    <!-- SAML 1 and 2 encoders for the attribute. -->
+    <resolver:AttributeEncoder xsi:type="SAML1String" xmlns="urn:mace:shibboleth:2.0:attribute:encoder"
+                               name="urn:mace:dir:attribute-def:eduPersonEntitlement" />
+        <resolver:AttributeEncoder xsi:type="SAML2String" xmlns="urn:mace:shibboleth:2.0:attribute:encoder"
+                                   name="urn:oid:1.3.6.1.4.1.5923.1.1.1.7"
+                                   friendlyName="eduPersonEntitlement" />
+
+    <!-- The script to populate entitlement values, wrapped in a CDATA section so that special XML characters don't need to be removed -->
+    <Script><![CDATA[
+        importPackage(Packages.edu.internet2.middleware.shibboleth.common.attribute.provider);
+ 
+        // create the attribute if it doesn't already exist
+        if (eduPersonEntitlement == null) eduPersonEntitlement = new BasicAttribute("eduPersonEntitlement");
+ 
+        // assign the common-lib-terms entitlement to all Staff/Students/Faculty
+        if (eduPersonAffiliation.getValues().contains("Staff") ||
+                eduPersonAffiliation.getValues().contains("Student") ||
+                eduPersonAffiliation.getValues().contains("Faculty")) {
+            eduPersonEntitlement.getValues().add("urn:mace:dir:entitlement:common-lib-terms");
+        }
+
+        // add a new entitlement for each group membership
+
+        // get the number of groups the user belongs to
+        var ngroup = memberOfGroupNameOnly.getValues().size();
+
+        // loop through each group and append a new entitlement value
+        // with a base of urn:mace:calstate.edu:csumb.edu:memberOf: + group name
+        for (var i=0; i<ngroup; i++)
+        {
+                var group = memberOfGroupNameOnly.getValues().get(i);
+                eduPersonEntitlement.getValues().add("urn:mace:calstate.edu:csumb.edu:memberOf:" + group);
+
+        }
+
+        
+    ]]></Script>
+</resolver:AttributeDefinition>
